@@ -1,0 +1,27 @@
+# CODEOWNERS — quem revisa cada parte do sistema multiagente
+#
+# Regra do GitHub: a ÚLTIMA linha que casar com o arquivo vence.
+# Com a branch protection da main, todo PR precisa da aprovação de ao menos
+# um dono de cada arquivo alterado.
+#
+# Cada área tem um dono principal e um reserva: o autor do PR não pode
+# aprovar o próprio PR, então uma área com dono único travaria quando o
+# próprio dono a alterasse.
+
+# Padrão — qualquer arquivo sem dono específico
+*                   @cesartisi @Pysic @pobeloti
+
+# Núcleo do agente: loop, ferramentas, configuração e dependências
+/agent.py           @Pysic @cesartisi
+/requirements.txt   @Pysic @cesartisi
+
+# Prompts de sistema e perfis dos agentes (Ada, Lint, Val) + memória
+/agent.md           @pobeloti @cesartisi
+/agent-*.md         @pobeloti @cesartisi
+/memory.md          @pobeloti @cesartisi
+
+# Interface web (Streamlit)
+/app.py             @cesartisi @Pysic
+
+# Governança do repositório: CODEOWNERS, template de PR, workflows
+/.github/           @cesartisi @pobeloti
