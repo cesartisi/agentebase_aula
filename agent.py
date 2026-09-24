@@ -90,6 +90,7 @@ def carregar_contexto() -> str:
 # argumentos" — quem executa é o seu código, no passo 4.
 #
 # >>> A ferramenta abaixo é só um EXEMPLO. Apague e coloque as suas. <<<
+# Revisão desta seção: @Pysic (ver .github/CODEOWNERS).
 
 
 def somar(a: float, b: float) -> dict:
