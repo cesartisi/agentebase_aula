@@ -56,3 +56,5 @@ chamou uma função para conferir uma conta.
 >
 > **Ada:** Clássico. Antes de eu olhar o código — o que precisa acontecer,
 > dentro do loop, para que a condição do `while` deixe de ser verdadeira?
+
+<!-- PR de teste: valida que a main exige review de code owner. -->
