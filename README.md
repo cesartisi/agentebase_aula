@@ -124,6 +124,30 @@ Em ordem de dificuldade:
    descrição é a interface entre o modelo e o seu código.
 ---
 
+## 5. Testes e esteira de CI
+
+```bash
+pip install -r requirements-dev.txt
+pytest                 # tudo (evals com modelo real só rodam com OPENAI_API_KEY)
+pytest -m unit         # uma camada só: unit | contrato | run_level | eval
+ruff check . && ruff format --check .
+```
+
+| Camada | Pasta | O que garante | Usa a OpenAI? |
+|---|---|---|---|
+| `unit` | `tests/unit/` | Ferramentas, executor, contexto e configuração isolados | Não |
+| `contrato` | `tests/contrato/` | Declaração JSON das ferramentas = assinatura Python = tabela nos `agent*.md` | Não |
+| `run_level` | `tests/run_level/` | O loop `responder()` ponta a ponta, com um modelo falso roteirizado | Não |
+| `eval` | `tests/eval/` | Qualidade das respostas com o modelo real (casos em `casos.json`) | Sim |
+
+A esteira (`.github/workflows/python-app.yml`) roda em todo push e PR para a
+`main`: primeiro o job **build** (instala, lint, formatação, compila, smoke
+test); se passar, os quatro jobs de teste rodam em paralelo. Para ligar os
+evals com modelo real no CI, cadastre o secret `OPENAI_API_KEY` em
+*Settings → Secrets and variables → Actions* — sem ele, os casos são pulados.
+
+---
+
 ## 6. Problemas comuns
 
 | Sintoma | Causa provável |
@@ -147,7 +171,6 @@ Para você saber o que falta quando precisar:
 - **Streaming** — a resposta aparece de uma vez
 - **Troca de provedor** — está preso à OpenAI; isolar em `chamar_modelo()` é o primeiro passo para mudar isso
 - **Persistência** — nada é salvo entre execuções, exceto o `memory.md`
-- **Testes** — nenhum
 - **Autenticação, logs, custos, deploy** — nada disso
 
 Tudo isso é infraestrutura em volta das ~35 linhas do `responder()`. O loop não

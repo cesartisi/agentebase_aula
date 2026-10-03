@@ -1,0 +1,155 @@
+# Esteira de CI do agente base.
+#
+#   build ──┬── test-unit        funções isoladas (ferramentas, contexto, config)
+#           ├── test-contrato    declaração das ferramentas x código x prompts
+#           ├── test-run-level   o loop do agente ponta a ponta, com modelo falso
+#           └── test-eval        qualidade com o modelo real (precisa do secret)
+#
+# O build roda primeiro e barra tudo se o código nem compila ou não passa no
+# lint. Os quatro jobs de teste rodam em paralelo depois dele.
+
+name: Python application
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+# Menor privilégio: a esteira só lê o repositório.
+permissions:
+  contents: read
+
+# Um push novo no mesmo PR cancela a execução antiga (economiza minutos).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: Verificar conflitos de dependências
+        run: pip check
+
+      - name: Lint (ruff)
+        run: ruff check --output-format=github .
+
+      - name: Formatação (ruff format)
+        run: ruff format --check .
+
+      - name: Compilar todos os arquivos Python
+        run: python -m compileall -q .
+
+      - name: Smoke test — o agente importa sem chave de API
+        run: python -c "import agent; print('agente ok, modelo:', agent.MODELO)"
+
+  test-unit:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Testes unitários + cobertura
+        run: >
+          pytest -m unit
+          --cov=agent --cov-report=term-missing --cov-report=xml
+          --junitxml=reports/unit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relatorio-unit
+          path: |
+            reports/
+            coverage.xml
+
+  test-contrato:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Testes de contrato
+        run: pytest -m contrato --junitxml=reports/contrato.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relatorio-contrato
+          path: reports/
+
+  test-run-level:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Testes run-level (loop com modelo falso)
+        run: pytest -m run_level --junitxml=reports/run-level.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relatorio-run-level
+          path: reports/
+
+  test-eval:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Cadastre em Settings > Secrets and variables > Actions.
+      # Sem o secret (ou em PR vindo de fork) os evals com modelo real são pulados.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      AGENTE_TEMPERATURA: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Avisar se os evals com modelo real vão ser pulados
+        if: env.OPENAI_API_KEY == ''
+        run: echo "::warning::OPENAI_API_KEY não configurada — só o dataset de eval será validado."
+      - name: Evals
+        run: pytest -m eval -v --junitxml=reports/eval.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relatorio-eval
+          path: reports/

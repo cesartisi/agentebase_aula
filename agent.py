@@ -19,8 +19,8 @@ Rode com:  python agent.py
 import json
 import os
 import sys
-from typing import cast
 from pathlib import Path
+from typing import cast
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -94,7 +94,7 @@ def carregar_contexto() -> str:
 
 def somar(a: float, b: float) -> dict:
     """Exemplo de ferramenta. Modelos erram conta; Python não."""
-#    print(f"[somar] executando de verdade: {a} + {b}")
+    #    print(f"[somar] executando de verdade: {a} + {b}")
     return {"resultado": a + b}
 
 
@@ -210,9 +210,7 @@ def main() -> None:
         print(f"ERRO: {exc}")
         sys.exit(1)
 
-    mensagens: list[ChatCompletionMessageParam] = [
-        {"role": "system", "content": carregar_contexto()}
-    ]
+    mensagens: list[ChatCompletionMessageParam] = [{"role": "system", "content": carregar_contexto()}]
     print(f"Agente base — {MODELO}. Digite /sair para encerrar.\n")
 
     while True:

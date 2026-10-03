@@ -1,0 +1,26 @@
+[
+  {
+    "id": "soma-basica",
+    "pergunta": "quanto é 1234 mais 5678?",
+    "deve_conter": ["6912"],
+    "deve_chamar": ["somar"]
+  },
+  {
+    "id": "soma-decimal",
+    "pergunta": "Some 19.75 com 0.25, por favor.",
+    "deve_conter": ["20"],
+    "deve_chamar": ["somar"]
+  },
+  {
+    "id": "soma-grande",
+    "pergunta": "Qual o total de 987654321 + 123456789?",
+    "deve_conter": ["1111111110"],
+    "deve_chamar": ["somar"]
+  },
+  {
+    "id": "sem-ferramenta",
+    "pergunta": "Diga apenas 'olá', em português.",
+    "deve_conter": ["olá"],
+    "nao_deve_chamar": ["somar"]
+  }
+]
