@@ -1,15 +1,14 @@
 """Fixtures compartilhadas pelas quatro camadas de teste.
 
-A regra de ouro: só a camada `eval` fala com a OpenAI de verdade. Todo o
+A regra de ouro: só a camada `eval` fala com o Claude de verdade. Todo o
 resto roda offline, rápido e de graça — e por isso roda em todo push.
 """
 
-import json
 import sys
 from pathlib import Path
 
 import pytest
-from openai.types.chat import ChatCompletion
+from anthropic.types.beta import BetaMessage
 
 RAIZ = Path(__file__).resolve().parent.parent
 if str(RAIZ) not in sys.path:
@@ -30,51 +29,51 @@ def cliente_limpo(monkeypatch):
 # --------------------------------------------------------------------------
 
 
-def resposta_texto(texto: str) -> ChatCompletion:
+def resposta_texto(texto: str) -> BetaMessage:
     """Uma resposta da API em que o modelo respondeu em texto."""
-    return _completion({"role": "assistant", "content": texto})
+    return _mensagem([{"type": "text", "text": texto}], "end_turn")
 
 
-def resposta_ferramenta(*chamadas: tuple[str, dict | str]) -> ChatCompletion:
+def resposta_ferramenta(*chamadas: tuple[str, dict]) -> BetaMessage:
     """Uma resposta da API em que o modelo pediu uma ou mais ferramentas.
 
-    Cada chamada é (nome, argumentos). Argumentos em `str` vão crus — útil
-    para simular o modelo mandando JSON quebrado.
+    Cada chamada é (nome, argumentos).
     """
-    tool_calls = [
-        {
-            "id": f"call_{i}",
-            "type": "function",
-            "function": {
-                "name": nome,
-                "arguments": args if isinstance(args, str) else json.dumps(args),
-            },
-        }
+    blocos = [
+        {"type": "tool_use", "id": f"toolu_{i}", "name": nome, "input": args}
         for i, (nome, args) in enumerate(chamadas)
     ]
-    return _completion({"role": "assistant", "content": None, "tool_calls": tool_calls})
+    return _mensagem(blocos, "tool_use")
 
 
-def _completion(mensagem: dict) -> ChatCompletion:
-    return ChatCompletion.model_validate(
+def resposta_recusa() -> BetaMessage:
+    """O filtro de segurança recusou o pedido."""
+    return _mensagem([], "refusal")
+
+
+def _mensagem(conteudo: list[dict], stop_reason: str) -> BetaMessage:
+    return BetaMessage.model_validate(
         {
-            "id": "chatcmpl-teste",
-            "object": "chat.completion",
-            "created": 0,
+            "id": "msg_teste",
+            "type": "message",
+            "role": "assistant",
             "model": "modelo-falso",
-            "choices": [{"index": 0, "finish_reason": "stop", "message": mensagem}],
+            "content": conteudo,
+            "stop_reason": stop_reason,
+            "stop_sequence": None,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
         }
     )
 
 
 class ModeloFalso:
-    """Imita `OpenAI()` o suficiente para `responder()`: cliente.chat.completions.create."""
+    """Imita `Anthropic()` o suficiente para `responder()`: cliente.beta.messages.create."""
 
-    def __init__(self, roteiro: list[ChatCompletion]):
+    def __init__(self, roteiro: list[BetaMessage]):
         self.roteiro = list(roteiro)
         self.chamadas: list[dict] = []
-        self.chat = self
-        self.completions = self
+        self.beta = self
+        self.messages = self
 
     def create(self, **kwargs):
         # Copia a lista: `responder` muta `mensagens` depois da chamada.

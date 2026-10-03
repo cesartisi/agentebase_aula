@@ -133,8 +133,7 @@ jobs:
     env:
       # Cadastre em Settings > Secrets and variables > Actions.
       # Sem o secret (ou em PR vindo de fork) os evals com modelo real são pulados.
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      AGENTE_TEMPERATURA: "0"
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -144,8 +143,8 @@ jobs:
           cache-dependency-path: requirements*.txt
       - run: pip install -r requirements-dev.txt
       - name: Avisar se os evals com modelo real vão ser pulados
-        if: env.OPENAI_API_KEY == ''
-        run: echo "::warning::OPENAI_API_KEY não configurada — só o dataset de eval será validado."
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::warning::ANTHROPIC_API_KEY não configurada — só o dataset de eval será validado."
       - name: Evals
         run: pytest -m eval -v --junitxml=reports/eval.xml
       - uses: actions/upload-artifact@v4

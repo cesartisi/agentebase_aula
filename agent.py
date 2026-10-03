@@ -20,11 +20,10 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import cast
 
+from anthropic import Anthropic
+from anthropic.types.beta import BetaMessageParam, BetaToolParam, BetaToolResultBlockParam
 from dotenv import load_dotenv
-from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
 # ==========================================================================
 # 1. CONFIGURAÇÃO
@@ -36,26 +35,33 @@ RAIZ = Path(__file__).resolve().parent
 AGENT_MD = RAIZ / "agent.md"
 MEMORY_MD = RAIZ / "memory.md"
 
-MODELO = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-TEMPERATURA = float(os.getenv("AGENTE_TEMPERATURA", "0.7"))
+MODELO = os.getenv("ANTHROPIC_MODEL", "claude-opus-5-5")
+# Quanto o modelo pensa antes de responder: low | medium | high | xhigh | max.
+# Menos esforço = mais rápido e mais barato. (Este modelo não aceita temperatura.)
+ESFORCO = os.getenv("AGENTE_ESFORCO", "medium")
+MAX_TOKENS = int(os.getenv("AGENTE_MAX_TOKENS", "16000"))
 MAX_ITERACOES = int(os.getenv("AGENTE_MAX_ITERACOES", "5"))
+
+# Se o filtro de segurança do modelo recusar um pedido, a própria API tenta de
+# novo num modelo reserva recomendado pela Anthropic, dentro da mesma chamada.
+BETAS_FALLBACK = ["server-side-fallback-2026-07-01"]
 
 _cliente = None
 
 
-def get_cliente() -> OpenAI:
-    """Instancia o cliente da OpenAI — uma vez só, na primeira chamada.
+def get_cliente() -> Anthropic:
+    """Instancia o cliente da Anthropic (Claude) — uma vez só, na primeira chamada.
 
     AQUI que o modelo entra no projeto. Trocar de provedor começa por aqui.
     """
     global _cliente
     if _cliente is None:
-        chave = os.getenv("OPENAI_API_KEY")
+        chave = os.getenv("ANTHROPIC_API_KEY")
         if not chave:
             raise RuntimeError(
-                "OPENAI_API_KEY não encontrada. Copie .env.example para .env e coloque sua chave."
+                "ANTHROPIC_API_KEY não encontrada. Copie .env.example para .env e coloque sua chave."
             )
-        _cliente = OpenAI(api_key=chave)
+        _cliente = Anthropic(api_key=chave)
     return _cliente
 
 
@@ -98,20 +104,17 @@ def somar(a: float, b: float) -> dict:
     return {"resultado": a + b}
 
 
-FERRAMENTAS: list[ChatCompletionToolParam] = [
+FERRAMENTAS: list[BetaToolParam] = [
     {
-        "type": "function",
-        "function": {
-            "name": "somar",
-            "description": "Soma dois números. Use sempre que precisar de uma adição exata.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "number", "description": "Primeiro número."},
-                    "b": {"type": "number", "description": "Segundo número."},
-                },
-                "required": ["a", "b"],
+        "name": "somar",
+        "description": "Soma dois números. Use sempre que precisar de uma adição exata.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "a": {"type": "number", "description": "Primeiro número."},
+                "b": {"type": "number", "description": "Segundo número."},
             },
+            "required": ["a", "b"],
         },
     }
 ]
@@ -141,7 +144,7 @@ def executar_ferramenta(nome: str, argumentos: dict) -> str:
 # ==========================================================================
 
 
-def responder(mensagens: list[ChatCompletionMessageParam], verboso: bool = False) -> str:
+def responder(mensagens: list[BetaMessageParam], verboso: bool = False) -> str:
     """O agente propriamente dito.
 
     O que diferencia um agente de uma simples chamada de API é ESTE loop:
@@ -150,50 +153,57 @@ def responder(mensagens: list[ChatCompletionMessageParam], verboso: bool = False
           -> pediu ferramenta? executa, anexa o resultado, repete
           -> respondeu em texto?  acabou, essa é a resposta
 
-    `mensagens` é modificada no lugar, então o histórico (incluindo as
-    chamadas de ferramenta) fica preservado entre turnos.
+    `mensagens` tem só os turnos de usuário e assistente; o prompt de sistema
+    (agent.md + memory.md) vai à parte, em `system`. A lista é modificada no
+    lugar, então o histórico (incluindo as chamadas de ferramenta) fica
+    preservado entre turnos.
     """
     cliente = get_cliente()
+    sistema = carregar_contexto()
 
     for _ in range(MAX_ITERACOES):
-        resposta = cliente.chat.completions.create(
+        resposta = cliente.beta.messages.create(
             model=MODELO,
+            max_tokens=MAX_TOKENS,
+            system=sistema,
             messages=mensagens,
             tools=FERRAMENTAS,
-            temperature=TEMPERATURA,
+            output_config={"effort": ESFORCO},
+            betas=BETAS_FALLBACK,
+            fallbacks="default",
         )
-        recado = resposta.choices[0].message
+
+        # O filtro de segurança recusou (e o modelo reserva também). Nada a anexar.
+        if resposta.stop_reason == "refusal":
+            return "Não posso ajudar com esse pedido."
+
+        # Guarda a resposta INTEIRA (não só o texto): os blocos de raciocínio
+        # e de chamada de ferramenta precisam voltar intactos na próxima chamada.
+        mensagens.append({"role": "assistant", "content": resposta.content})
 
         # Caso 1: respondeu em texto. Fim.
-        if not recado.tool_calls:
-            mensagens.append({"role": "assistant", "content": recado.content})
-            return recado.content or ""
+        if resposta.stop_reason != "tool_use":
+            return "".join(b.text for b in resposta.content if b.type == "text")
 
-        # Caso 2: quer usar ferramentas.
-        mensagens.append(cast(ChatCompletionMessageParam, recado.model_dump(exclude_none=True)))
-
-        for chamada in recado.tool_calls:
-            funcao = getattr(chamada, "function", None)
-            if funcao is None:
-                nome = getattr(chamada, "name", "desconhecida")
-                argumentos = {}
-            else:
-                nome = funcao.name
-                try:
-                    argumentos = json.loads(funcao.arguments or "{}")
-                except json.JSONDecodeError:
-                    argumentos = {}
-
+        # Caso 2: quer usar ferramentas. Todos os resultados voltam numa mensagem só.
+        resultados: list[BetaToolResultBlockParam] = []
+        for bloco in resposta.content:
+            if bloco.type != "tool_use":
+                continue
+            argumentos = bloco.input if isinstance(bloco.input, dict) else {}
             if verboso:
-                print(f"  [ferramenta] {nome}({argumentos})")
+                print(f"  [ferramenta] {bloco.name}({argumentos})")
 
-            mensagens.append(
+            conteudo = executar_ferramenta(bloco.name, argumentos)
+            resultados.append(
                 {
-                    "role": "tool",
-                    "tool_call_id": chamada.id,
-                    "content": executar_ferramenta(nome, argumentos),
+                    "type": "tool_result",
+                    "tool_use_id": bloco.id,
+                    "content": conteudo,
+                    "is_error": "erro" in json.loads(conteudo),
                 }
             )
+        mensagens.append({"role": "user", "content": resultados})
 
     return "Atingi o limite de iterações sem concluir. Tente reformular a pergunta."
 
@@ -210,7 +220,7 @@ def main() -> None:
         print(f"ERRO: {exc}")
         sys.exit(1)
 
-    mensagens: list[ChatCompletionMessageParam] = [{"role": "system", "content": carregar_contexto()}]
+    mensagens: list[BetaMessageParam] = []
     print(f"Agente base — {MODELO}. Digite /sair para encerrar.\n")
 
     while True:
@@ -226,12 +236,13 @@ def main() -> None:
             print("Até mais.")
             return
 
+        marca = len(mensagens)
         mensagens.append({"role": "user", "content": entrada})
         try:
             print(f"\nagente> {responder(mensagens, verboso=True)}\n")
         except Exception as exc:
             print(f"\n[erro ao chamar o modelo] {exc}\n")
-            mensagens.pop()  # descarta o turno que falhou
+            del mensagens[marca:]  # descarta o turno que falhou, inteiro
 
 
 if __name__ == "__main__":

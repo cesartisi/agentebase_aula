@@ -7,6 +7,7 @@ isso no CI.
 """
 
 import inspect
+import re
 
 import pytest
 
@@ -18,7 +19,7 @@ TIPOS_JSON = {"number", "integer", "string", "boolean", "array", "object"}
 
 
 def _declaracoes():
-    return {f["function"]["name"]: f["function"] for f in agent.FERRAMENTAS}
+    return {f["name"]: f for f in agent.FERRAMENTAS}
 
 
 def test_toda_declaracao_tem_executor_e_vice_versa():
@@ -26,20 +27,20 @@ def test_toda_declaracao_tem_executor_e_vice_versa():
 
 
 def test_nomes_de_ferramenta_sao_unicos():
-    nomes = [f["function"]["name"] for f in agent.FERRAMENTAS]
+    nomes = [f["name"] for f in agent.FERRAMENTAS]
     assert len(nomes) == len(set(nomes))
 
 
 @pytest.mark.parametrize("nome", sorted(agent.EXECUTORES))
 def test_declaracao_bem_formada(nome):
     decl = _declaracoes()[nome]
-    ferramenta = next(f for f in agent.FERRAMENTAS if f["function"]["name"] == nome)
 
-    assert ferramenta["type"] == "function"
+    # Nome de ferramenta na API da Anthropic: letras, dígitos, _ e -, até 64.
+    assert re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", nome)
     # A description é a interface com o modelo: vaga = ferramenta ignorada.
     assert len(decl["description"].split()) >= 4, "description curta demais para o modelo decidir"
 
-    params = decl["parameters"]
+    params = decl["input_schema"]
     assert params["type"] == "object"
     assert set(params["required"]) <= set(params["properties"])
     for nome_param, spec in params["properties"].items():
@@ -49,7 +50,7 @@ def test_declaracao_bem_formada(nome):
 
 @pytest.mark.parametrize("nome", sorted(agent.EXECUTORES))
 def test_assinatura_python_bate_com_a_declaracao(nome):
-    decl = _declaracoes()[nome]["parameters"]
+    decl = _declaracoes()[nome]["input_schema"]
     assinatura = inspect.signature(agent.EXECUTORES[nome])
 
     params_py = set(assinatura.parameters)
@@ -63,7 +64,7 @@ def test_assinatura_python_bate_com_a_declaracao(nome):
 def test_ferramenta_devolve_dict_serializavel(nome):
     """O executor faz json.dumps do retorno: tem que ser dict serializável."""
     exemplos = {"number": 1, "integer": 1, "string": "x", "boolean": True, "array": [], "object": {}}
-    props = _declaracoes()[nome]["parameters"]["properties"]
+    props = _declaracoes()[nome]["input_schema"]["properties"]
     argumentos = {k: exemplos[v["type"]] for k, v in props.items()}
 
     retorno = agent.EXECUTORES[nome](**argumentos)

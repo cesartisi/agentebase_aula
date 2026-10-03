@@ -8,13 +8,13 @@ pytestmark = pytest.mark.unit
 
 
 def test_get_cliente_sem_chave_falha_com_mensagem_clara(monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         agent.get_cliente()
 
 
 def test_get_cliente_e_singleton(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-teste-falsa")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-teste-falsa")
     primeiro = agent.get_cliente()
     assert agent.get_cliente() is primeiro
 
@@ -49,6 +49,7 @@ def test_carregar_contexto_le_os_arquivos_reais_do_repo():
 
 
 def test_parametros_numericos_validos():
-    assert 0.0 <= agent.TEMPERATURA <= 2.0
+    assert agent.ESFORCO in {"low", "medium", "high", "xhigh", "max"}
+    assert agent.MAX_TOKENS > 0
     assert agent.MAX_ITERACOES >= 1
     assert agent.MODELO

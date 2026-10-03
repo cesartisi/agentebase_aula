@@ -4,7 +4,7 @@ Teste unitário diz se o código está certo. Eval diz se o AGENTE está bom:
 chamou a ferramenta quando devia? A resposta tem o número certo?
 
 Custa token e a resposta varia, então:
-  - só roda se houver OPENAI_API_KEY (no CI, um secret do repositório);
+  - só roda se houver ANTHROPIC_API_KEY (no CI, um secret do repositório);
   - sem a chave, os casos são PULADOS (skip), não reprovados;
   - os casos ficam em casos.json — adicionar um caso não exige Python.
 """
@@ -39,24 +39,22 @@ def test_casos_bem_formados():
             assert nome in agent.EXECUTORES, f"{caso['id']}: ferramenta '{nome}' não existe"
 
 
-SEM_CHAVE = not os.getenv("OPENAI_API_KEY")
+SEM_CHAVE = not os.getenv("ANTHROPIC_API_KEY")
 
 
-@pytest.mark.skipif(SEM_CHAVE, reason="sem OPENAI_API_KEY: evals com modelo real pulados")
+@pytest.mark.skipif(SEM_CHAVE, reason="sem ANTHROPIC_API_KEY: evals com modelo real pulados")
 @pytest.mark.parametrize("caso", CASOS, ids=[c["id"] for c in CASOS])
 def test_eval_com_modelo_real(caso):
-    mensagens = [
-        {"role": "system", "content": agent.carregar_contexto()},
-        {"role": "user", "content": caso["pergunta"]},
-    ]
+    mensagens = [{"role": "user", "content": caso["pergunta"]}]
 
     resposta = agent.responder(mensagens)
 
     chamadas = {
-        tc["function"]["name"]
+        bloco.name
         for m in mensagens
         if m["role"] == "assistant"
-        for tc in m.get("tool_calls", [])
+        for bloco in m["content"]
+        if bloco.type == "tool_use"
     }
     for esperado in caso.get("deve_conter", []):
         assert _normalizar(esperado) in _normalizar(resposta), f"resposta sem '{esperado}': {resposta!r}"

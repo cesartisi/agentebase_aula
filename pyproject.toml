@@ -5,7 +5,7 @@ markers = [
     "unit: funções isoladas, sem rede e sem modelo",
     "contrato: o acordo entre declaração das ferramentas, código e prompts",
     "run_level: o loop do agente rodando de ponta a ponta com um modelo falso",
-    "eval: qualidade das respostas com o modelo de verdade (precisa de OPENAI_API_KEY)",
+    "eval: qualidade das respostas com o modelo de verdade (precisa de ANTHROPIC_API_KEY)",
 ]
 
 [tool.ruff]
