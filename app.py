@@ -42,17 +42,18 @@ except RuntimeError as erro:
 # precisa sobreviver a isso mora em st.session_state.
 #
 # São duas listas, de propósito:
-#   mensagens -> histórico no formato da API (inclui as chamadas de ferramenta)
+#   mensagens -> histórico no formato da API (inclui as chamadas de ferramenta;
+#                o prompt de sistema NÃO entra aqui, o agent.py manda à parte)
 #   tela      -> o que o usuário vê (não mostramos JSON de ferramenta na tela)
 
 if "mensagens" not in st.session_state:
-    st.session_state.mensagens = [{"role": "system", "content": agent.carregar_contexto()}]
+    st.session_state.mensagens = []
     st.session_state.tela = []
 
 with st.sidebar:
     st.caption(f"Modelo: `{agent.MODELO}`")
     if st.button("Nova conversa", use_container_width=True):
-        st.session_state.mensagens = [{"role": "system", "content": agent.carregar_contexto()}]
+        st.session_state.mensagens = []
         st.session_state.tela = []
         st.rerun()
 

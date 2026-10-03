@@ -19,7 +19,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
-notepad .env          # cole sua OPENAI_API_KEY e salve
+notepad .env          # cole sua ANTHROPIC_API_KEY e salve
 ```
 
 > **PowerShell não aceita `&&`** — um comando por linha.
@@ -124,6 +124,30 @@ Em ordem de dificuldade:
    descrição é a interface entre o modelo e o seu código.
 ---
 
+## 5. Testes e esteira de CI
+
+```bash
+pip install -r requirements-dev.txt
+pytest                 # tudo (evals com modelo real só rodam com ANTHROPIC_API_KEY)
+pytest -m unit         # uma camada só: unit | contrato | run_level | eval
+ruff check . && ruff format --check .
+```
+
+| Camada | Pasta | O que garante | Chama o Claude? |
+|---|---|---|---|
+| `unit` | `tests/unit/` | Ferramentas, executor, contexto e configuração isolados | Não |
+| `contrato` | `tests/contrato/` | Declaração JSON das ferramentas = assinatura Python = tabela nos `agent*.md` | Não |
+| `run_level` | `tests/run_level/` | O loop `responder()` ponta a ponta, com um modelo falso roteirizado | Não |
+| `eval` | `tests/eval/` | Qualidade das respostas com o modelo real (casos em `casos.json`) | Sim |
+
+A esteira (`.github/workflows/python-app.yml`) roda em todo push e PR para a
+`main`: primeiro o job **build** (instala, lint, formatação, compila, smoke
+test); se passar, os quatro jobs de teste rodam em paralelo. Para ligar os
+evals com modelo real no CI, cadastre o secret `ANTHROPIC_API_KEY` em
+*Settings → Secrets and variables → Actions* — sem ele, os casos são pulados.
+
+---
+
 ## 6. Problemas comuns
 
 | Sintoma | Causa provável |
@@ -131,9 +155,9 @@ Em ordem de dificuldade:
 | `O token '&&' não é um separador válido` | PowerShell não aceita `&&`. Um comando por linha. |
 | `Activate.ps1 não pode ser carregado` | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
 | `ModuleNotFoundError` | Instalou fora do venv. Ative o venv e repita o `pip install`. |
-| `OPENAI_API_KEY não encontrada` | Falta o `.env`, ou você está rodando de outra pasta. |
+| `ANTHROPIC_API_KEY não encontrada` | Falta o `.env`, ou você está rodando de outra pasta. |
 | Erro 401 | Chave inválida — confira se não sobrou a linha de exemplo no `.env`. |
-| Erro 429 | Limite de cota da sua conta OpenAI. Não é bug do código. |
+| Erro 429 | Limite de uso da sua conta na API da Anthropic. Não é bug do código. |
 | O agente não chama a ferramenta | A `description` está vaga. Diga **quando** usar. |
 | Ele "esqueceu" o combinado | Foi para o histórico da conversa, não para o `memory.md`. Só o arquivo persiste. |
 | Parede de `missing ScriptRunContext` | Rodou `python app.py`. Use `streamlit run app.py`. |
@@ -145,9 +169,8 @@ Em ordem de dificuldade:
 Para você saber o que falta quando precisar:
 
 - **Streaming** — a resposta aparece de uma vez
-- **Troca de provedor** — está preso à OpenAI; isolar em `chamar_modelo()` é o primeiro passo para mudar isso
+- **Troca de provedor** — está preso à API da Anthropic (Claude); isolar em `chamar_modelo()` é o primeiro passo para mudar isso
 - **Persistência** — nada é salvo entre execuções, exceto o `memory.md`
-- **Testes** — nenhum
 - **Autenticação, logs, custos, deploy** — nada disso
 
 Tudo isso é infraestrutura em volta das ~35 linhas do `responder()`. O loop não
