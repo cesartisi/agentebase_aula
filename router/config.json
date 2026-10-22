@@ -1,7 +1,1 @@
-{
-  "pct": 0,
-  "urls": {
-    "estavel": "https://deploycicdclass-f7fyh8avdjekgug2.canadacentral-01.azurewebsites.net",
-    "canary": "https://deploycicdclass-canary-bue6cjdjc2dae0ak.canadacentral-01.azurewebsites.net"
-  }
-}
+{"pct": 0, "urls": {"estavel": "https://deploycicdclass-f7fyh8avdjekgug2.canadacentral-01.azurewebsites.net", "canary": "https://deploycicdclass-canary2-a0heecfvd6hrhcey.canadacentral-01.azurewebsites.net"}}
