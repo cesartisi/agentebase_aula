@@ -1,0 +1,42 @@
+# Deploy automático para um Azure Web App próprio.
+#
+# Este workflow é genérico de propósito: cada aluno que faz fork deste
+# repositório configura seus próprios secrets (AZURE_WEBAPP_NAME e
+# AZURE_WEBAPP_PUBLISH_PROFILE) e passa a ter deploy automático a cada push
+# na própria main. Veja o passo a passo completo em DEPLOY_AZURE.md.
+#
+# Sem os secrets configurados (ex.: no repositório-template original), o job
+# roda, avisa que faltam secrets e PULA o deploy — não falha a run.
+
+name: Deploy Azure
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    # Com DEPLOY_ESTRATEGIA=canary quem publica é o deploy-canary.yml.
+    if: vars.DEPLOY_ESTRATEGIA != 'canary'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checar secrets do Azure
+        id: secrets
+        run: |
+          if [ -z "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}" ] || [ -z "${{ secrets.AZURE_WEBAPP_NAME }}" ]; then
+            echo "::warning::Secrets AZURE_WEBAPP_NAME / AZURE_WEBAPP_PUBLISH_PROFILE não configurados. Deploy pulado — veja DEPLOY_AZURE.md para configurar seu próprio Azure Web App."
+            echo "pronto=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "pronto=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy no Azure Web App
+        if: steps.secrets.outputs.pronto == 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: .
