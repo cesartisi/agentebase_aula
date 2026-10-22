@@ -1,0 +1,102 @@
+# Deploy canary automático: a versão nova vai primeiro para uma fração dos
+# visitantes e só chega a todo mundo se continuar saudável.
+#
+#   agentebase-router  -> URL pública; manda cada visitante (302) para:
+#   agentebase         -> o estável (produção)
+#   agentebase-canary  -> recebe a versão nova primeiro
+#
+# Fluxo: testes -> deploy no canary -> roteador 10% -> observa -> 50% ->
+# observa -> deploy no estável -> roteador 0%. Se qualquer passo falhar, o
+# roteador volta para 0% e o estável, que não foi tocado, segue no ar.
+#
+# Só roda com a variable DEPLOY_ESTRATEGIA=canary — sem ela, quem publica é o
+# deploy-azure.yml, como antes. Passo a passo em DEPLOY_CANARY.md.
+
+name: Deploy Canary
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Dois canaries ao mesmo tempo brigariam pelo roteador.
+concurrency:
+  group: deploy-producao
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    if: vars.DEPLOY_ESTRATEGIA == 'canary'
+    runs-on: ubuntu-latest
+    env:
+      ROUTER_URL: ${{ vars.ROUTER_URL }}
+      ROUTER_PUBLISH_PROFILE: ${{ secrets.AZURE_ROUTER_PUBLISH_PROFILE }}
+      CANARY_PASSOS: ${{ vars.CANARY_PASSOS || '10 50' }}
+      CANARY_ESPERA_MIN: ${{ vars.CANARY_ESPERA_MIN || '5' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checar secrets
+        run: |
+          for nome in AZURE_WEBAPP_NAME AZURE_WEBAPP_PUBLISH_PROFILE AZURE_CANARY_NAME AZURE_CANARY_PUBLISH_PROFILE AZURE_ROUTER_PUBLISH_PROFILE; do
+            [ -n "${!nome}" ] || { echo "::error::Secret $nome não configurado — veja DEPLOY_CANARY.md"; exit 1; }
+          done
+          [ -n "$ROUTER_URL" ] || { echo "::error::Variable ROUTER_URL não configurada — veja DEPLOY_CANARY.md"; exit 1; }
+        env:
+          AZURE_WEBAPP_NAME: ${{ secrets.AZURE_WEBAPP_NAME }}
+          AZURE_WEBAPP_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          AZURE_CANARY_NAME: ${{ secrets.AZURE_CANARY_NAME }}
+          AZURE_CANARY_PUBLISH_PROFILE: ${{ secrets.AZURE_CANARY_PUBLISH_PROFILE }}
+          AZURE_ROUTER_PUBLISH_PROFILE: ${{ secrets.AZURE_ROUTER_PUBLISH_PROFILE }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Testes (sem API real)
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          pytest -m "not smoke and not eval" -v
+
+      - name: URLs do estável e do canary
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          urls = json.load(open("router/config.json"))["urls"]
+          print(f"URL_ESTAVEL={urls['estavel'].rstrip('/')}")
+          print(f"URL_CANARY={urls['canary'].rstrip('/')}")
+          PY
+
+      - name: Deploy no canary
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_CANARY_NAME }}
+          publish-profile: ${{ secrets.AZURE_CANARY_PUBLISH_PROFILE }}
+          package: .
+
+      - name: Canary subiu?
+        run: bash .github/scripts/canary.sh saude "$URL_CANARY"
+
+      - name: Rampa do canary
+        run: |
+          for pct in $CANARY_PASSOS; do
+            bash .github/scripts/canary.sh publicar-router "$pct"
+            bash .github/scripts/canary.sh observar "$URL_CANARY" "$CANARY_ESPERA_MIN"
+          done
+
+      - name: Promover para o estável
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: .
+
+      - name: Estável subiu?
+        run: bash .github/scripts/canary.sh saude "$URL_ESTAVEL"
+
+      - name: Encerrar canary (roteador 0%)
+        run: bash .github/scripts/canary.sh publicar-router 0
+
+      - name: Rollback (roteador 0%)
+        if: failure()
+        run: bash .github/scripts/canary.sh publicar-router 0
